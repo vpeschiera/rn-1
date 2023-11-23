@@ -10,6 +10,7 @@
 #include <regex.h>
 #include <netdb.h>
 #include <sys/socket.h>
+#include <errno.h>
 
 #define BUFFER_SIZE 2000
 
@@ -49,7 +50,7 @@ int main(int argc, char* argv[]){
 
     //Save arguments in variables
     char *ipAddress = argv[1];
-    const int port = atoi(argv[2]);
+    const char *port = argv[2];
     socklen_t addr_size;
 
     int status;
@@ -60,7 +61,7 @@ int main(int argc, char* argv[]){
     hints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
     hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
 
-    status = getaddrinfo(ipAddress, argv[2], &hints, &servinfo);
+    status = getaddrinfo(ipAddress, port, &hints, &servinfo);
     if(status != 0) {
         fprintf(stderr, "getaddrinfo error: %s\\n\"", gai_strerror(status));
         return -1;
@@ -92,20 +93,32 @@ int main(int argc, char* argv[]){
         return -1;
     }
 
+    printf("Listening successfully\n");
+
     struct sockaddr_storage their_addr;
-    int new_fd;
+    int connection_id;
     addr_size = sizeof their_addr;
-    new_fd = accept(socket_id, (struct sockaddr *)&their_addr, &addr_size);
-    if(new_fd != 0) {
-        fprintf(stderr, "Accepting error: %s\n", gai_strerror(listenStatus));
+    connection_id = accept(socket_id, (struct sockaddr *)&their_addr, &addr_size);
+    if(connection_id == -1) {
+        fprintf(stderr, "Accepting error: %s\n", gai_strerror(connection_id));
+        fprintf(stderr, "Accepting error: %s\n", strerror(errno));
         return -1;
     }
+
+    printf("Connection accepted\n");
 
     char *msg = "reply";
     int len, bytes_sent;
 
     len = strlen(msg);
-    bytes_sent = send(socket_id, msg, len, 0);
+    bytes_sent = send(connection_id, msg, len, 0);
+    if(bytes_sent == -1) {
+        fprintf(stderr, "Sending error: %s\n", gai_strerror(listenStatus));
+        fprintf(stderr, "Sending error: %s\n", strerror(errno));
+        return -1;
+    }
+
+    printf("Message sent successfully\n");
 /*
     //Set socket ip address and port
     struct sockaddr_in server_address;
