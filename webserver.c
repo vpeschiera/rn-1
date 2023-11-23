@@ -95,7 +95,76 @@ int main(int argc, char* argv[]){
 
     printf("Listening successfully\n");
 
-    struct sockaddr_storage their_addr;
+    /*const char *pattern = "^(GET|POST|PUT|DELETE) / HTTP/1\\.1\\(r|x0D)\\(n|x0A)(.*: .*\\(r|x0D)\\(n|x0A))?(.*\\(r|x0D)\\(n|x0A))*\\(r|x0D)\\(n|x0A)(.*)$";*/
+    /*const char *pattern = "^(GET|POST|PUT|DELETE) \\/ HTTP\\/1\\.1\\\\(r|x0D)\\\\(n|x0A).*: .*\\\\(r|x0D)\\\\(n|x0A)?(.*\\\\(r|x0D)\\\\(n|x0A))*\\\\(r|x0D)\\\\(n|x0A)(.*)$"*/
+    //const char *pattern = "^(GET|POST|PUT|DELETE) / HTTP/1\\.1\\(r|x0D)\\(n|x0A).*: .*\\(r|x0D)\\(n|x0A)?(.*\\(r|x0D)\\(n|x0A))*\\(r|x0D)\\(n|x0A)(.*)$";
+/*
+    const char *pattern = "^(GET|POST|PUT|DELETE) \/ HTTP\/1\.1\\(r|x0D)\\(n|x0A)(.*: .*\\(r|x0D)\\(n|x0A))?(.*\\(r|x0D)\\(n|x0A))*\\(r|x0D)\\(n|x0A)(.*)$";
+*/
+
+    const char *pattern = "^(GET|POST|PUT|DELETE) / HTTP/1\\.1([\r\n]|[\x0D\x0A])(.*: .*([\r\n]|[\x0D\x0A]))*([\r\n]|[\x0D\x0A])(.*)$";
+
+    regex_t regex;
+    if (regcomp(&regex, pattern, REG_EXTENDED) != 0) {
+        fprintf(stderr, "Failed to compile regex\n");
+        return 1;
+    }
+
+    while(1) {
+        struct sockaddr_storage their_addr;
+        socklen_t addr_size = sizeof their_addr;
+
+        int connection_id = accept(socket_id, (struct sockaddr *)&their_addr, &addr_size);
+        if (connection_id == -1) {
+            perror("Accepting error");
+            return -1;
+        }
+
+        printf("Connection accepted\n");
+
+        char recv_buffer[3000];
+        int recv_status = recv(connection_id, recv_buffer, sizeof(recv_buffer) - 1, 0);
+        if(recv_status == -1) {
+            perror("Receiving error");
+            return -1;
+        }
+        recv_buffer[recv_status] = '\0';
+        printf("Received message: ");
+        for (int i = 0; i < recv_status; ++i) {
+            if (isprint(recv_buffer[i])) {
+                putchar(recv_buffer[i]);
+            } else {
+                printf("\\x%02X", recv_buffer[i] & 0xFF);
+            }
+        }
+        printf("\n");
+
+        char *msg;
+        regmatch_t matches[6];
+        if (regexec(&regex, recv_buffer, 6, matches, 0) == 0) {
+            // Match found
+            printf("HTTP Method: %.*s\n", (int)(matches[1].rm_eo - matches[1].rm_so), recv_buffer + matches[1].rm_so);
+            printf("Host: %.*s\n", (int)(matches[3].rm_eo - matches[3].rm_so), recv_buffer + matches[3].rm_so);
+            printf("Payload: %.*s\n", (int)(matches[5].rm_eo - matches[5].rm_so), recv_buffer + matches[5].rm_so);
+
+            msg = "Reply\r\n\r\n";
+
+        } else {
+            msg = "No match found";
+            printf("No match\n");
+        }
+
+        int len = strlen(msg);
+        int bytes_sent = send(connection_id, msg, len, 0);
+        if (bytes_sent == -1) {
+            perror("Sending error");
+            return -1;
+        }
+        printf("Message sent successfully\n");
+        // Close the connection after sending the message
+        close(connection_id);
+    }
+/*    struct sockaddr_storage their_addr;
     int connection_id;
     addr_size = sizeof their_addr;
     connection_id = accept(socket_id, (struct sockaddr *)&their_addr, &addr_size);
@@ -119,7 +188,7 @@ int main(int argc, char* argv[]){
     }
 
     printf("Message sent successfully\n");
-/*
+
     //Set socket ip address and port
     struct sockaddr_in server_address;
     server_address.sin_family = AF_INET;
@@ -176,14 +245,14 @@ int main(int argc, char* argv[]){
         // Send a response (you can modify this based on your requirements)
         send_response(client_socket, status_line, body);
         //const char* reply = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Type: text/plain\r\n\r\nTEST REPLY\r\n";
-        *//*const char* reply = "Reply\r\n\r\n";
+        const char* reply = "Reply\r\n\r\n";
         printf("Sending response: %s", reply);
         if(send(client_socket, reply, strlen(reply), 0) < 0) {
             printf("Error replying message");
             return -1;
         } else {
             printf("Successful reply!\n");
-        }*//*
+        }
     } else {
         // Incomplete request received, respond with 400 Bad Request
         printf("Incomplete request received: %s\n", client_message);
@@ -198,7 +267,7 @@ int main(int argc, char* argv[]){
     }
     printf("Client message: %s", client_message);
 
-    *//*client_message[bytes_received] = '\0';
+    client_message[bytes_received] = '\0';
 
     if (strncmp(client_message, "GET ", 4) == 0) {
         printf("Received HTTP/0.9 request\n");
@@ -209,7 +278,7 @@ int main(int argc, char* argv[]){
         } else {
             printf("Incomplete request received\n");
         }
-    }*//*
+    }
 
     //Reply to client
     //char reply[] = "Reply\r\n\r\n";
@@ -218,5 +287,6 @@ int main(int argc, char* argv[]){
 
     close(client_socket);
     close(socket_id);*/
+    regfree(&regex);
     return 0;
 }
