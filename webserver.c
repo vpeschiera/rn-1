@@ -50,6 +50,7 @@ int main(int argc, char* argv[]){
     //Save arguments in variables
     char *ipAddress = argv[1];
     const int port = atoi(argv[2]);
+    socklen_t addr_size;
 
     int status;
     struct addrinfo hints;
@@ -66,20 +67,45 @@ int main(int argc, char* argv[]){
     }
 
     //Create a socket
-    struct addrinfo *res;
-    int socket_id = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    /*struct addrinfo *res;*/
+
+    int socket_id = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
 
     if(socket_id < 0){
-        printf("Error creating socket\n");
+        fprintf(stderr, "Error creating socket\n");
         return -1;
     }
 
     printf("Socket created successfully\n");
 
-    if(bind(socket_id, res->ai_addr, res->ai_addrlen) != 0) {
-        fprintf(stderr, "Binding error\n");
+    int bindStatus = bind(socket_id, servinfo->ai_addr, servinfo->ai_addrlen);
+    if(bindStatus != 0) {
+        fprintf(stderr, "Binding error: %s\n", gai_strerror(bindStatus));
         return -1;
     }
+
+    printf("Socket bound successfully\n");
+
+    int listenStatus = listen(socket_id, 5);
+    if(listenStatus != 0) {
+        fprintf(stderr, "Listening error: %s\n", gai_strerror(listenStatus));
+        return -1;
+    }
+
+    struct sockaddr_storage their_addr;
+    int new_fd;
+    addr_size = sizeof their_addr;
+    new_fd = accept(socket_id, (struct sockaddr *)&their_addr, &addr_size);
+    if(new_fd != 0) {
+        fprintf(stderr, "Accepting error: %s\n", gai_strerror(listenStatus));
+        return -1;
+    }
+
+    char *msg = "reply";
+    int len, bytes_sent;
+
+    len = strlen(msg);
+    bytes_sent = send(socket_id, msg, len, 0);
 /*
     //Set socket ip address and port
     struct sockaddr_in server_address;
