@@ -1,14 +1,15 @@
 //
 // Created by Valeria Peschiera on 08.11.23.
 //
-
-
 #include <sys/socket.h>
 #include <printf.h>
 #include <string.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <regex.h>
+#include <netdb.h>
+#include <sys/socket.h>
 
 #define BUFFER_SIZE 2000
 
@@ -24,8 +25,20 @@ void send_response(int client_socket, const char *status_line, const char *body)
 }
 
 int main(int argc, char* argv[]){
-    printf("Test");
+
+/*    const char *ipAddressPattern = "^[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}$";
+    printf("Test");*/
     //Get arguments from program start
+/*    regex_t regex;
+    int compile_status = regcomp(&regex, ipAddressPattern, 0);*/
+/*    if (strcmp("localhost", argv[1]) == 0) {
+        ipAddress = "127.0.0.1";
+    } else if(compile_status != 0){
+        printf("Invalid IP Address\n");
+        return -1;
+    } else {
+         ipAddress = argv[1];
+    }*/
     if(argc > 3) {
         printf("Too many arguments!\n");
         return -1;
@@ -33,13 +46,28 @@ int main(int argc, char* argv[]){
         printf("Missing arguments\n");
         return -1;
     }
-    printf("%s -- %s", argv[1], argv[2]);
 
     //Save arguments in variables
-    const char *ipAddress = argv[1];
+    char *ipAddress = argv[1];
     const int port = atoi(argv[2]);
+
+    int status;
+    struct addrinfo hints;
+    struct addrinfo *servinfo;
+
+    memset(&hints, 0, sizeof hints); // make sure the struct is empty
+    hints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
+    hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
+
+    status = getaddrinfo(ipAddress, argv[2], &hints, &servinfo);
+    if(status != 0) {
+        fprintf(stderr, "getaddrinfo error: %s\\n\"", gai_strerror(status));
+        return -1;
+    }
+
     //Create a socket
-    int socket_id = socket(AF_INET, SOCK_STREAM, 0);
+    struct addrinfo *res;
+    int socket_id = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
 
     if(socket_id < 0){
         printf("Error creating socket\n");
@@ -48,6 +76,11 @@ int main(int argc, char* argv[]){
 
     printf("Socket created successfully\n");
 
+    if(bind(socket_id, res->ai_addr, res->ai_addrlen) != 0) {
+        fprintf(stderr, "Binding error\n");
+        return -1;
+    }
+/*
     //Set socket ip address and port
     struct sockaddr_in server_address;
     server_address.sin_family = AF_INET;
@@ -104,14 +137,14 @@ int main(int argc, char* argv[]){
         // Send a response (you can modify this based on your requirements)
         send_response(client_socket, status_line, body);
         //const char* reply = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Type: text/plain\r\n\r\nTEST REPLY\r\n";
-        /*const char* reply = "Reply\r\n\r\n";
+        *//*const char* reply = "Reply\r\n\r\n";
         printf("Sending response: %s", reply);
         if(send(client_socket, reply, strlen(reply), 0) < 0) {
             printf("Error replying message");
             return -1;
         } else {
             printf("Successful reply!\n");
-        }*/
+        }*//*
     } else {
         // Incomplete request received, respond with 400 Bad Request
         printf("Incomplete request received: %s\n", client_message);
@@ -126,7 +159,7 @@ int main(int argc, char* argv[]){
     }
     printf("Client message: %s", client_message);
 
-    /*client_message[bytes_received] = '\0';
+    *//*client_message[bytes_received] = '\0';
 
     if (strncmp(client_message, "GET ", 4) == 0) {
         printf("Received HTTP/0.9 request\n");
@@ -137,7 +170,7 @@ int main(int argc, char* argv[]){
         } else {
             printf("Incomplete request received\n");
         }
-    }*/
+    }*//*
 
     //Reply to client
     //char reply[] = "Reply\r\n\r\n";
@@ -145,6 +178,6 @@ int main(int argc, char* argv[]){
     printf("Successful reply!");
 
     close(client_socket);
-    close(socket_id);
+    close(socket_id);*/
     return 0;
 }

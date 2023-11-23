@@ -6,7 +6,6 @@ from http.client import HTTPConnection
 
 from util import KillOnExit, randbytes
 
-
 executable = 'build/webserver'
 port = 4711
 
