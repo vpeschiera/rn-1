@@ -1,0 +1,5 @@
+/Users/valeriapeschiera/Desktop/RNVS/Praxis_1/cmake-build-debug/CMakeFiles/webserver.dir
+/Users/valeriapeschiera/Desktop/RNVS/Praxis_1/cmake-build-debug/CMakeFiles/package.dir
+/Users/valeriapeschiera/Desktop/RNVS/Praxis_1/cmake-build-debug/CMakeFiles/package_source.dir
+/Users/valeriapeschiera/Desktop/RNVS/Praxis_1/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/valeriapeschiera/Desktop/RNVS/Praxis_1/cmake-build-debug/CMakeFiles/rebuild_cache.dir
