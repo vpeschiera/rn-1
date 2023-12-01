@@ -11,6 +11,7 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <errno.h>
+#include <assert.h>
 
 #define BUFFER_SIZE 2000
 
@@ -21,6 +22,11 @@ typedef struct {
     char headers[255];
     char payload[BUFFER_SIZE - 600]; // Adjust the size based on your requirements
 } HttpRequest;
+
+typedef struct {
+    size_t start;
+    size_t end;
+} HttpRequestPosition;
 
 void send_response(int client_socket, const char *status_line, const char *body) {
     char response[BUFFER_SIZE];
@@ -65,7 +71,7 @@ int check_string_ends_with_crlf(const char *str) {
     return (len >= 4 && str[len - 4] == '\r' && str[len - 3] == '\n' && str[len - 2] == '\r' && str[len - 1] == '\n');
 }
 
-void get_http_request(char *str) {
+/*void get_http_request(char *str) {
     const char *substrings[] = {"GET", "POST", "PUT", "DELETE"};
     size_t substring_count = sizeof(substrings) / sizeof(substrings[0]);
 
@@ -76,7 +82,59 @@ void get_http_request(char *str) {
             printf("Found substring '%s' at position %zu\n", substring, pos - str);
         }
     }
+}*/
+int get_http_request(char *str, int *start, int *end) {
+    const char *substrings[] = {"GET", "POST", "PUT", "DELETE"};
+    size_t substring_count = sizeof(substrings) / sizeof(substrings[0]);
+
+    *start = 0;
+    *end = 0;
+
+    for (size_t i = 0; i < substring_count; ++i) {
+        char *substring = substrings[i];
+        const char *pos = strstr(str, substring);
+        if (pos != NULL && check_string_ends_with_crlf(pos + strlen(substring))) {
+            *start = pos - str;  // Set the start position
+            const char *end_pos = strstr(pos, "\r\n\r\n");
+            if (end_pos != NULL) {
+                *end = end_pos + 4 - str;  // Set the end position after "\r\n\r\n"
+                strncpy(substring, str + *start, *end - *start);
+                substring[*end - *start] = '\0';
+                printf("Substring: %.*s\n", *end - *start, str + *start);
+                printf("Found substring '%s' at position %d\n", substring, *start);
+
+                return 1;  // Valid HTTP request found
+            }
+        }
+    }
+
+    return 0;  // No valid HTTP request found
 }
+/*HttpRequestPosition get_http_request(char *str) {
+    const char *substrings[] = {"GET", "POST", "PUT", "DELETE"};
+    size_t substring_count = sizeof(substrings) / sizeof(substrings[0]);
+
+    HttpRequestPosition position = {0, 0};  // Initialize positions to 0
+
+    for (size_t i = 0; i < substring_count; ++i) {
+        const char *substring = substrings[i];
+        const char *pos = strstr(str, substring);
+        if (pos != NULL && check_string_ends_with_crlf(pos + strlen(substring))) {
+            position.start = pos - str;  // Set the start position
+            const char *end_pos = strstr(pos, "\r\n\r\n");
+            if (end_pos != NULL) {
+                position.end = end_pos + 4 - str;  // Set the end position after "\r\n\r\n"
+                printf("Found substring '%s' at position %zu\n", substring, position.start);
+                break;  // Stop searching after the first valid HTTP request is found
+            }
+            *//*position.end = pos + strlen(substring) - str;  // Set the end position
+            printf("Found substring '%s' at position %zu\n", substring, position.start);
+            break;  // Stop searching after the first valid HTTP request is found*//*
+        }
+    }
+
+    return position;
+}*/
 
 int main(int argc, char* argv[]){
     char buffer[BUFFER_SIZE] = {0};
@@ -93,7 +151,7 @@ int main(int argc, char* argv[]){
     //Save arguments in variables
     char *ipAddress = argv[1];
     const char *port = argv[2];
-    socklen_t addr_size;
+    //socklen_t addr_size;
 
     int status;
     struct addrinfo hints;
@@ -152,6 +210,8 @@ int main(int argc, char* argv[]){
         return 1;
     }*/
 
+    //char msg[1024];
+    //size_t pos = 0;
     while(1) {
         struct sockaddr_storage their_addr;
         socklen_t addr_size = sizeof their_addr;
@@ -163,15 +223,59 @@ int main(int argc, char* argv[]){
         }
 
         printf("Connection accepted\n");
-
         //--------------------
+        assert(buffer_len < BUFFER_SIZE);
+        ssize_t  amt = read(connection_id, buffer + buffer_len, sizeof(buffer) - buffer_len);
+        if(amt < 0) {
+            perror("Reading failed\n");
+            return -1;
+        }
+        /*else if(amt == 0) {
+            printf("READING AMT 0");
+            break;
+        }*/
+        buffer_len += amt;
+        char *e = strstr(buffer, "\r\n\r\n");
+        if(e) {
+            size_t msglen = e - buffer;
+
+            HttpRequest parsed_request;
+            parse_http_request(buffer, &parsed_request);
+
+            process_request(&parsed_request);
+
+            memset(buffer, '\0', BUFFER_SIZE);
+            buffer_len = 0;
+        }
+
         // Receive data from the client
-        ssize_t bytes_received;
+        /*ssize_t bytes_received;
         size_t inbuf_remain = BUFFER_SIZE - buffer_len;
-        while ((bytes_received = recv(connection_id, (void*)&buffer[buffer_len], inbuf_remain, 0)) > 0) {
+        //while ((bytes_received = recv(connection_id, (void*)&buffer[buffer_len], inbuf_remain, 0)) > 0) {
+            bytes_received = recv(connection_id, (void*)&buffer[buffer_len], inbuf_remain, 0);
+            if(bytes_received < 0) {
+                perror("Reading failed\n");
+                return -1;
+            } else if(bytes_received == 0) {
+                printf("READING AMT 0");
+                break;
+            }
             buffer_len += bytes_received;
             // Identify complete HTTP requests in the buffer
-            get_http_request(buffer);
+            int start, end;
+            int status = get_http_request(buffer, &start, &end);
+            if(status != 0) {
+                printf("++++++++++++++++++++");
+                char valid_request[end - start];
+                memcpy(valid_request, buffer + start, end - start);
+
+                HttpRequest parsed_request;
+                parse_http_request(valid_request, &parsed_request);
+
+                // Process the complete HTTP request
+                process_request(&parsed_request);
+                printf("++++++++++++++++++++");
+            }
             char *end_of_header = strstr(buffer, "\r\n\r\n");
             if (end_of_header != NULL) {
             //while (end_of_header != NULL) {
@@ -195,9 +299,8 @@ int main(int argc, char* argv[]){
 
                 // Look for the next complete HTTP request in the buffer
                 //end_of_header = strstr(buffer, "\r\n\r\n");
-            }
-        }
-        //--------------------
+            }*/
+        //}
 
 /*        char recv_buffer[3000];
         int recv_status = recv(connection_id, recv_buffer, sizeof(recv_buffer) - 1, 0);
@@ -254,132 +357,13 @@ int main(int argc, char* argv[]){
         }
         printf("Message sent successfully\n");
         // Close the connection after sending the message
-        close(connection_id);
-
-    }
-/*    struct sockaddr_storage their_addr;
-    int connection_id;
-    addr_size = sizeof their_addr;
-    connection_id = accept(socket_id, (struct sockaddr *)&their_addr, &addr_size);
-    if(connection_id == -1) {
-        fprintf(stderr, "Accepting error: %s\n", gai_strerror(connection_id));
-        fprintf(stderr, "Accepting error: %s\n", strerror(errno));
-        return -1;
     }
 
-    printf("Connection accepted\n");
-
-    char *msg = "reply";
-    int len, bytes_sent;
-
-    len = strlen(msg);
-    bytes_sent = send(connection_id, msg, len, 0);
-    if(bytes_sent == -1) {
-        fprintf(stderr, "Sending error: %s\n", gai_strerror(listenStatus));
-        fprintf(stderr, "Sending error: %s\n", strerror(errno));
-        return -1;
-    }
-
-    printf("Message sent successfully\n");
-
-    //Set socket ip address and port
-    struct sockaddr_in server_address;
-    server_address.sin_family = AF_INET;
-    server_address.sin_port = htons(port);
-    server_address.sin_addr.s_addr = inet_addr(ipAddress);
-
-    //Bind socket to port
-    if(bind(socket_id, (struct sockaddr*)&server_address, sizeof(server_address)) < 0){
-        printf("Error binding socket");
-        return -1;
-    }
-
-    printf("Socket bound successfully");
-
-    //Listen on socket
-    if(listen(socket_id, 1) < 0){
-        printf("Error listening");
-        return -1;
-    }
-    printf("Listening");
-
-    //Create client address variable
-    struct sockaddr_in client_address;
-
-    //Accept connection and check status
-    socklen_t client_length = sizeof(client_address);
-    int client_socket = accept(socket_id, (struct sockaddr*)&client_address, &client_length);
-    if (client_socket < 0){
-        printf("Error accepting connection");
-        return -1;
-    }
-
-    printf("Connection established");
-
-    //Receive message from client and reply
-    char client_message[2000];
-
-    ssize_t bytes_received = recv(client_socket, client_message, sizeof(client_message), 0);
-    if( bytes_received < 0){
-        printf("Error receiving message");
-        return -1;
-    }
-
-    client_message[bytes_received] = '\0';
-    char *end_of_headers = strstr(client_message, "\r\n\r\n");
-    if (end_of_headers != NULL) {
-        // Complete HTTP request received
-        printf("Received HTTP request: %s\n", client_message);
-
-        // For simplicity, assume all requests are valid, otherwise, respond with 400 Bad Request
-        const char *status_line = "HTTP/1.1 200 OK";
-        const char *body = "Reply";
-
-        // Send a response (you can modify this based on your requirements)
-        send_response(client_socket, status_line, body);
-        //const char* reply = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Type: text/plain\r\n\r\nTEST REPLY\r\n";
-        const char* reply = "Reply\r\n\r\n";
-        printf("Sending response: %s", reply);
-        if(send(client_socket, reply, strlen(reply), 0) < 0) {
-            printf("Error replying message");
-            return -1;
-        } else {
-            printf("Successful reply!\n");
-        }
-    } else {
-        // Incomplete request received, respond with 400 Bad Request
-        printf("Incomplete request received: %s\n", client_message);
-
-        const char *status_line = "HTTP/1.1 400 Bad Request";
-        const char *body = "Bad Request";
-
-        // Send a response
-        send_response(client_socket, status_line, body);
-        // Incomplete request received, handle accordingly (e.g., buffer it for future reads)
-        //  printf("Incomplete request received: %s\n", client_message);
-    }
-    printf("Client message: %s", client_message);
-
-    client_message[bytes_received] = '\0';
-
-    if (strncmp(client_message, "GET ", 4) == 0) {
-        printf("Received HTTP/0.9 request\n");
-    } else {
-        char *end_of_request = strstr(client_message, "\r\n\r\n");
-        if (end_of_request != NULL) {
-            printf("Recieved HTTP request %s\n", client_message);
-        } else {
-            printf("Incomplete request received\n");
-        }
-    }
-
-    //Reply to client
-    //char reply[] = "Reply\r\n\r\n";
-    */
     printf("Successful reply!");
 
     // Close the sockets
     //regfree(&regex);
-    close(socket_id);
+    //close(connection_id);
+    //close(socket_id);
     return 0;
 }
