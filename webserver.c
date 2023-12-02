@@ -83,6 +83,16 @@ void process_request(const HttpRequest *request) {
     return 0;
 }*/
 
+// Function to check if "Content-Length" is present in the headers
+int has_content_length_header(char headers[MAX_HEADERS][2][MAX_HEADER_SIZE], int header_count) {
+    for (int i = 0; i < header_count; i++) {
+        if (strcmp(headers[i][0], "Content-Length") == 0) {
+            return 1; // Found "Content-Length" header
+        }
+    }
+    return 0; // "Content-Length" not found
+}
+
 int parse_http_request(char *buffer, HttpRequest *request) {
     char *token;
     char *saveptr;
@@ -95,10 +105,19 @@ int parse_http_request(char *buffer, HttpRequest *request) {
     // Parse start line
     line = strtok_r(buffer, "\r\n", &saveptr);
     if (!line) {
-        // Invalid request
+        // Invalid request: no start line
         return -1;
     }
-    sscanf(line, "%s %s %s", request->method, request->path, request->version);
+
+    if(sscanf(line, "%s %s %s", request->method, request->path, request->version) != 3) {
+        return -1;
+    }
+
+    // Check if method, URI, and HTTP version are not empty
+    if (request->method[0] == '\0' || request->path[0] == '\0' || request->version[0] == '\0') {
+        // Invalid request: empty method, URI, or HTTP version
+        return -1;
+    }
 
     // Copy line pointer for later use in payload extraction
     char *payload_start = saveptr;
@@ -146,6 +165,12 @@ int parse_http_request(char *buffer, HttpRequest *request) {
         strncpy(request->payload, payload_start, request->content_length);
     }
 
+    // Check for a missing Content-Length header for non-zero content length
+    if (sizeof(request->payload) > 0 && has_content_length_header(request->headers, header_count) == 1) {
+        // Invalid request: non-zero content length with no Content-Length header
+        return -1;
+    }
+
     return 0; // Successfully parsed
 }
 
@@ -154,6 +179,16 @@ int check_string_ends_with_crlf(const char *str) {
     return (len >= 4 && str[len - 4] == '\r' && str[len - 3] == '\n' && str[len - 2] == '\r' && str[len - 1] == '\n');
 }
 
+void send_message(char msg[], int connection_id) {
+    int len = strlen(msg);
+    int bytes_sent = send(connection_id, msg, len, 0);
+    if (bytes_sent == -1) {
+        perror("Sending error");
+        //return -1;
+    }
+    printf("Message sent successfully\n");
+    printf("Successful reply!");
+}
 
 /*void get_http_request(char *str) {
     const char *substrings[] = {"GET", "POST", "PUT", "DELETE"};
@@ -323,24 +358,17 @@ int main(int argc, char* argv[]){
 
             // Parse HTTP request
             HttpRequest parsed_request;
-            parse_http_request(buffer, &parsed_request);
-/*            if (parse_http_request(buffer, buffer_len, &parsed_request) == 0) {
-                // Print the parsed request for debugging
-                //print_request(&parsed_request);
-                printf("REQUEST VALID ");
-                // Handle the HTTP request
-            } else {
-                // Handle parsing error or invalid request
-                printf("NOT VALID");
-            }*/
-/*            int parse_status = parse_http_request(buffer, &parsed_request);
-            if (parse_status < 0) {
-                msg = "HTTP/1.1 501 Not Implemented\r\nContent-Length: 17\r\n\r\nNot Implemented\r\n\r\n";
-            } else if (parse_status == 1) {
-                msg = "HTTP/1.1 404 Not Found\r\nContent-Length: 13\r\n\r\nNot Found\r\n\r\n";
-            } else {
+            int parse_status = parse_http_request(buffer, &parsed_request);
+            if(parse_status < 0) {
                 msg = "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\r\n\r\n";
-            }*/
+                send_message(msg, connection_id);
+            } else if (strcmp(parsed_request.method, "GET") == 0) {
+                msg = "HTTP/1.1 404 Not Found\r\nContent-Length: 13\r\n\r\nNot Found\r\n\r\n";
+                send_message(msg, connection_id);
+            } else {
+                msg = "HTTP/1.1 501 Not Implemented\r\nContent-Length: 17\r\n\r\nNot Implemented\r\n\r\n";
+                send_message(msg, connection_id);
+            }
 
             process_request(&parsed_request);
 
@@ -348,22 +376,8 @@ int main(int argc, char* argv[]){
             buffer_len = 0;
         }
 
-        msg = "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\r\n\r\n";
-        int len = strlen(msg);
-        int bytes_sent = send(connection_id, msg, len, 0);
-        if (bytes_sent == -1) {
-            perror("Sending error");
-            return -1;
-        }
-        printf("Message sent successfully\n");
-        // Close the connection after sending the message
     }
-
-    printf("Successful reply!");
-
-    // Close the sockets
-    //regfree(&regex);
-    //close(connection_id);
-    //close(socket_id);
+    // Close the server socket
+    close(socket_id);
     return 0;
 }
