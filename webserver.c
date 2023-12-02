@@ -12,12 +12,16 @@
 #include <sys/socket.h>
 #include <errno.h>
 #include <assert.h>
+#include <stdbool.h>
 
 #define BUFFER_SIZE 8192
 #define MAX_HEADERS 40
 #define MAX_HEADER_SIZE 256
 #define MAX_RESOURCE_COUNT 100
 #define MAX_PATH_SIZE 256
+#define MAX_PATH_CONTENT 100
+#define MAX_DYNAMIC_PATH_SIZE 256
+#define DYNAMIC_PATH_PREFIX "/dynamic/"
 
 /*typedef struct {
     char method[10];
@@ -34,6 +38,13 @@ typedef struct {
     char payload[BUFFER_SIZE];
     size_t content_length;
 } HttpRequest;
+
+typedef struct {
+    char path[MAX_PATH_SIZE];
+    char content[MAX_PATH_CONTENT];
+} Resource;
+
+Resource resources[MAX_RESOURCE_COUNT];
 
 
 void print_msg_buffer(char buffer[], int buffer_len) {
@@ -59,60 +70,105 @@ void send_message(char msg[], int connection_id) {
     printf("Successful reply!");
 }
 
+bool find_resource(const char *path, char *content) {
+    for (int i = 0; i < MAX_RESOURCE_COUNT; ++i) {
+        if (strcmp(resources[i].path, path) == 0) {
+            strcpy(content, resources[i].content);
+            return true; // Resource found
+        }
+    }
+    return false; // Resource not found
+}
+
+void update_resource(const char *path, const char *content) {
+    for (int i = 0; i < MAX_RESOURCE_COUNT; ++i) {
+        if (strcmp(resources[i].path, path) == 0) {
+            strcpy(resources[i].content, content);
+            return; // Resource updated
+        }
+    }
+
+    // If the resource is not found, add a new resource
+    for (int i = 0; i < MAX_RESOURCE_COUNT; ++i) {
+        if (resources[i].path[0] == '\0') {
+            strcpy(resources[i].path, path);
+            strcpy(resources[i].content, content);
+            return; // New resource added
+        }
+    }
+}
+
+void delete_resource(const char *path) {
+    for (int i = 0; i < MAX_RESOURCE_COUNT; ++i) {
+        if (strcmp(resources[i].path, path) == 0) {
+            resources[i].path[0] = '\0'; // Empty the path to mark it as deleted
+            resources[i].content[0] = '\0'; // Empty the content
+            return; // Resource deleted
+        }
+    }
+}
+
+int is_dynamic_path(const char *path) {
+    // Check if the path starts with "dynamic/"
+    return strncmp(path, DYNAMIC_PATH_PREFIX, strlen(DYNAMIC_PATH_PREFIX)) == 0;
+}
+
 void process_request(const HttpRequest *request, int connection_id) {
     // Your logic to process the complete and valid HTTP request goes here
     printf("Processing request:\nMethod: %s\nPath: %s\nVersion: %s\nHeaders: %s\nPayload: %s\n",
            request->method, request->path, request->version, request->headers, request->payload);
 
-    // Check if the request path corresponds to a static route
-    if (strncmp(request->path, "/static/foo", strlen("/static/foo")) == 0) {
-        // Respond with "Foo"
-        char *msg = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nFoo\r\n";
+    if(strcmp(request->method, "PUT") == 0) {
+        if (!is_dynamic_path(request->path)) {
+            // Respond with Forbidden (403) for paths outside dynamic/
+            char *msg = "HTTP/1.1 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden\r\n";
+            send_message(msg, connection_id);
+            return;
+        }
+        // Handle PUT request
+        update_resource(request->path, request->payload);
+
+        // Respond with "Created" if the resource did not previously exist
+        // Respond with "No Content" if the previous content has been overwritten
+        char *msg = "HTTP/1.1 %s\r\nContent-Length: 0\r\n\r\n";
+        if (strlen(request->payload) > 0) {
+            msg = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n";
+        } else {
+            msg = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
+        }
         send_message(msg, connection_id);
-    } else if (strncmp(request->path, "/static/bar", strlen("/static/bar")) == 0) {
-        // Respond with "Bar"
-        char *msg = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nBar\r\n";
-        send_message(msg, connection_id);
-    } else if (strncmp(request->path, "/static/baz", strlen("/static/baz")) == 0) {
-        // Respond with "Baz"
-        char *msg = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nBaz\r\n";
-        send_message(msg, connection_id);
-    } else {
-        // Respond with "Not Found" for other paths
-        char *msg = "HTTP/1.1 404 Not Found\r\nContent-Length: 12\r\n\r\nNot Found\r\n\r\n";
+    } else if (strcmp(request->method, "GET") == 0){
+        // Check if the request path corresponds to a static route
+        if (strncmp(request->path, "/static/foo", strlen("/static/foo")) == 0) {
+            // Respond with "Foo"
+            char *msg = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nFoo\r\n";
+            send_message(msg, connection_id);
+        } else if (strncmp(request->path, "/static/bar", strlen("/static/bar")) == 0) {
+            // Respond with "Bar"
+            char *msg = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nBar\r\n";
+            send_message(msg, connection_id);
+        } else if (strncmp(request->path, "/static/baz", strlen("/static/baz")) == 0) {
+            // Respond with "Baz"
+            char *msg = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nBaz\r\n";
+            send_message(msg, connection_id);
+        } else {
+            // Respond with "Not Found" for other paths
+            char *msg = "HTTP/1.1 404 Not Found\r\nContent-Length: 12\r\n\r\nNot Found\r\n\r\n";
+            send_message(msg, connection_id);
+        }
+    } else if (strcmp(request->method, "DELETE") == 0) {
+        // Handle DELETE request
+        delete_resource(request->path);
+
+        // Respond with "No Content" for successful deletion
+        // Respond with "Not Found" for deletion of non-existent resource
+        char *msg = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
+        if (!find_resource(request->path, NULL)) {
+            msg = "HTTP/1.1 404 Not Found\r\nContent-Length: 12\r\n\r\nNot Found\r\n\r\n";
+        }
         send_message(msg, connection_id);
     }
-
 }
-
-// Function to parse the HTTP request string into an HttpRequest structure
-/*int parse_http_request(const char *request_str, HttpRequest *parsed_request) {
-    // Simple parsing logic (you may need to enhance this based on your requirements)
-    sscanf(request_str, "%s %s %s\r\n%[^\r\n]\r\n\r\n", parsed_request->method,
-           parsed_request->path, parsed_request->version, parsed_request->headers);
-*//*    sscanf(request_str, "%9s %99s %19s\r\n%499[^\r\n]\r\n\r\n%499[^\r\n]",
-           parsed_request->method, parsed_request->path, parsed_request->version,
-           parsed_request->headers, parsed_request->payload);*//*
-
-    if(strcmp(parsed_request->method, "GET") != 0
-        && strcmp(parsed_request->method, "POST") != 0
-        && strcmp(parsed_request->method, "PUT") != 0
-        && strcmp(parsed_request->method, "DELETE") != 0
-    ) {
-        return -1;
-    } else if (strcmp(parsed_request->method, "GET") == 0) {
-        return 1;
-    }
-
-    // Find the start of the payload
-    const char *payload_start = strstr(request_str, "\r\n\r\n");
-    if (payload_start != NULL) {
-        payload_start += 4;  // Move past the "\r\n\r\n"
-        strncpy(parsed_request->payload, payload_start, sizeof(parsed_request->payload) - 1);
-        parsed_request->payload[sizeof(parsed_request->payload) - 1] = '\0';  // Null-terminate the payload
-    }
-    return 0;
-}*/
 
 // Function to check if "Content-Length" is present in the headers
 int has_content_length_header(char headers[MAX_HEADERS][2][MAX_HEADER_SIZE], int header_count) {
@@ -155,6 +211,7 @@ int parse_http_request(char *buffer, HttpRequest *request) {
 
     // Parse headers
     while ((line = strtok_r(NULL, "\r\n", &saveptr)) && header_count < MAX_HEADERS) {
+
         char *colon_pos = strstr(line, ": ");
         if (line[0] == '\0' || !colon_pos) {
             break; // Empty line indicates end of headers
@@ -178,29 +235,56 @@ int parse_http_request(char *buffer, HttpRequest *request) {
         header_count++;*/
     }
 
-    // Parse payload based on Content-Length header
+/*    // Parse payload based on Content-Length header
     for (int i = 0; i < header_count; i++) {
         if (strcmp(request->headers[i][0], "Content-Length") == 0) {
             sscanf(request->headers[i][1], "%zu", &(request->content_length));
             break;
         }
+    }*/
+    // Parse payload based on Content-Length header
+    for (int i = 0; i < header_count; i++) {
+        if (strcmp(request->headers[i][0], "Content-Length") == 0) {
+            size_t content_length;
+            sscanf(request->headers[i][1], "%zu", &content_length);
+
+            while (isspace(*payload_start)) {
+                payload_start++;
+            }
+
+            // Find the start of the payload
+/*            char *payload_pos = strstr(payload_start, "\r\n\r\n");
+            if (payload_pos != NULL) {
+                payload_pos += 4;  // Move past the "\r\n\r\n"*/
+
+                // Check if the content length matches the actual payload length
+                if (strlen(payload_start) >= content_length) {
+                    strncpy(request->payload, payload_start, content_length);
+                    request->payload[content_length] = '\0';  // Null-terminate the payload
+                } else {
+                    // Invalid request: payload length doesn't match Content-Length header
+                    return -1;
+                }
+            //}
+            break;
+        }
     }
 
-    // Skip leading whitespace characters before the payload
+/*    // Skip leading whitespace characters before the payload
     while (isspace(*payload_start)) {
         payload_start++;
     }
 
     // Copy payload if present
     if (request->content_length > 0) {
-        strncpy(request->payload, payload_start, request->content_length);
+        strncpy(request->payload, line, request->content_length);
     }
 
     // Check for a missing Content-Length header for non-zero content length
-    if (sizeof(request->payload) > 0 && has_content_length_header(request->headers, header_count) == 1) {
+    if (request->content_length > 0 && has_content_length_header(request->headers, header_count) == 0) {
         // Invalid request: non-zero content length with no Content-Length header
         return -1;
-    }
+    }*/
 
     return 0; // Successfully parsed
 }
@@ -381,7 +465,7 @@ int main(int argc, char* argv[]){
                 if(parse_status < 0) {
                     msg = "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\r\n\r\n";
                     send_message(msg, connection_id);
-                } else if (strcmp(parsed_request.method, "GET") == 0) {
+                } else if (strcmp(parsed_request.method, "GET") == 0 || strcmp(parsed_request.method, "POST") == 0 || strcmp(parsed_request.method, "PUT") == 0 || strcmp(parsed_request.method, "DELETE") == 0) {
                     // Handle the request based on the parsed information
                     process_request(&parsed_request, connection_id);
                 } else {
