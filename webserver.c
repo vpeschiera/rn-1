@@ -13,14 +13,26 @@
 #include <errno.h>
 #include <assert.h>
 
-#define BUFFER_SIZE 2000
+#define BUFFER_SIZE 8192
+#define MAX_HEADERS 40
+#define MAX_HEADER_SIZE 256
+#define MAX_RESOURCE_COUNT 100
+#define MAX_PATH_SIZE 256
 
-typedef struct {
+/*typedef struct {
     char method[10];
     char path[255];
     char version[10];
     char headers[255];
     char payload[BUFFER_SIZE - 600]; // Adjust the size based on your requirements
+} HttpRequest;*/
+typedef struct {
+    char method[MAX_HEADER_SIZE];
+    char path[MAX_PATH_SIZE];
+    char version[MAX_HEADER_SIZE];
+    char headers[MAX_HEADERS][2][MAX_HEADER_SIZE];
+    char payload[BUFFER_SIZE];
+    size_t content_length;
 } HttpRequest;
 
 
@@ -43,15 +55,15 @@ void process_request(const HttpRequest *request) {
 }
 
 // Function to parse the HTTP request string into an HttpRequest structure
-int parse_http_request(const char *request_str, HttpRequest *parsed_request) {
+/*int parse_http_request(const char *request_str, HttpRequest *parsed_request) {
     // Simple parsing logic (you may need to enhance this based on your requirements)
     sscanf(request_str, "%s %s %s\r\n%[^\r\n]\r\n\r\n", parsed_request->method,
            parsed_request->path, parsed_request->version, parsed_request->headers);
-/*    sscanf(request_str, "%9s %99s %19s\r\n%499[^\r\n]\r\n\r\n%499[^\r\n]",
+*//*    sscanf(request_str, "%9s %99s %19s\r\n%499[^\r\n]\r\n\r\n%499[^\r\n]",
            parsed_request->method, parsed_request->path, parsed_request->version,
-           parsed_request->headers, parsed_request->payload);*/
+           parsed_request->headers, parsed_request->payload);*//*
 
-/*    if(strcmp(parsed_request->method, "GET") != 0
+    if(strcmp(parsed_request->method, "GET") != 0
         && strcmp(parsed_request->method, "POST") != 0
         && strcmp(parsed_request->method, "PUT") != 0
         && strcmp(parsed_request->method, "DELETE") != 0
@@ -59,7 +71,7 @@ int parse_http_request(const char *request_str, HttpRequest *parsed_request) {
         return -1;
     } else if (strcmp(parsed_request->method, "GET") == 0) {
         return 1;
-    }*/
+    }
 
     // Find the start of the payload
     const char *payload_start = strstr(request_str, "\r\n\r\n");
@@ -69,6 +81,72 @@ int parse_http_request(const char *request_str, HttpRequest *parsed_request) {
         parsed_request->payload[sizeof(parsed_request->payload) - 1] = '\0';  // Null-terminate the payload
     }
     return 0;
+}*/
+
+int parse_http_request(char *buffer, HttpRequest *request) {
+    char *token;
+    char *saveptr;
+    char *line;
+    int header_count = 0;
+
+    // Reset request structure
+    memset(request, 0, sizeof(HttpRequest));
+
+    // Parse start line
+    line = strtok_r(buffer, "\r\n", &saveptr);
+    if (!line) {
+        // Invalid request
+        return -1;
+    }
+    sscanf(line, "%s %s %s", request->method, request->path, request->version);
+
+    // Copy line pointer for later use in payload extraction
+    char *payload_start = saveptr;
+
+    // Parse headers
+    while ((line = strtok_r(NULL, "\r\n", &saveptr)) && header_count < MAX_HEADERS) {
+        char *colon_pos = strstr(line, ": ");
+        if (line[0] == '\0' || !colon_pos) {
+            break; // Empty line indicates end of headers
+        }
+
+        // Update payload_start pointer
+        payload_start = saveptr;
+
+        // Find the position of the colon in the line
+        //char *colon_pos = strstr(line, ": ");
+        if (colon_pos) {
+            // Extract the header name and value
+            strncpy(request->headers[header_count][0], line, colon_pos - line);
+            strcpy(request->headers[header_count][1], colon_pos + 2);
+            header_count++;
+        }
+/*        token = strtok(line, ": ");
+        strncpy(request->headers[header_count][0], token, MAX_HEADER_SIZE);
+        token = strtok(NULL, "");
+        strncpy(request->headers[header_count][1], token, MAX_HEADER_SIZE);
+        header_count++;*/
+    }
+
+    // Parse payload based on Content-Length header
+    for (int i = 0; i < header_count; i++) {
+        if (strcmp(request->headers[i][0], "Content-Length") == 0) {
+            sscanf(request->headers[i][1], "%zu", &(request->content_length));
+            break;
+        }
+    }
+
+    // Skip leading whitespace characters before the payload
+    while (isspace(*payload_start)) {
+        payload_start++;
+    }
+
+    // Copy payload if present
+    if (request->content_length > 0) {
+        strncpy(request->payload, payload_start, request->content_length);
+    }
+
+    return 0; // Successfully parsed
 }
 
 int check_string_ends_with_crlf(const char *str) {
@@ -140,6 +218,21 @@ int get_http_request(char *str, int *start, int *end) {
     }
 
     return position;
+}*/
+
+/*void print_request(HttpRequest *request) {
+    printf("Method: %s\n", request->method);
+    printf("Path: %s\n", request->path);
+    printf("Version: %s\n", request->version);
+
+    printf("Headers:\n");
+    for (int i = 0; i < MAX_HEADERS && request->headers[i][0][0] != '\0'; i++) {
+        printf("%s: %s\n", request->headers[i][0], request->headers[i][1]);
+    }
+
+    if (request->content_length > 0) {
+        printf("Payload: %.*s\n", (int)request->content_length, request->payload);
+    }
 }*/
 
 int main(int argc, char* argv[]){
@@ -221,13 +314,25 @@ int main(int argc, char* argv[]){
             return -1;
         }
 
+        print_msg_buffer(buffer, buffer_len);
+
         buffer_len += amt;
         char *e = strstr(buffer, "\r\n\r\n");
         if(e) {
             size_t msglen = e - buffer;
 
+            // Parse HTTP request
             HttpRequest parsed_request;
             parse_http_request(buffer, &parsed_request);
+/*            if (parse_http_request(buffer, buffer_len, &parsed_request) == 0) {
+                // Print the parsed request for debugging
+                //print_request(&parsed_request);
+                printf("REQUEST VALID ");
+                // Handle the HTTP request
+            } else {
+                // Handle parsing error or invalid request
+                printf("NOT VALID");
+            }*/
 /*            int parse_status = parse_http_request(buffer, &parsed_request);
             if (parse_status < 0) {
                 msg = "HTTP/1.1 501 Not Implemented\r\nContent-Length: 17\r\n\r\nNot Implemented\r\n\r\n";
@@ -242,8 +347,6 @@ int main(int argc, char* argv[]){
             memset(buffer, '\0', BUFFER_SIZE);
             buffer_len = 0;
         }
-
-        print_msg_buffer(buffer, buffer_len);
 
         msg = "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\r\n\r\n";
         int len = strlen(msg);
