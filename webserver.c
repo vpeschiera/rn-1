@@ -45,7 +45,7 @@ typedef struct {
 } Resource;
 
 Resource resources[MAX_RESOURCE_COUNT];
-
+size_t resources_count = 0;
 
 void print_msg_buffer(char buffer[], int buffer_len) {
     printf("Received message: ");
@@ -81,7 +81,7 @@ bool find_resource(const char *path, char *content) {
 }
 
 void update_resource(const char *path, const char *content) {
-    for (int i = 0; i < MAX_RESOURCE_COUNT; ++i) {
+    for (int i = 0; i < resources_count; ++i) {
         if (strcmp(resources[i].path, path) == 0) {
             strcpy(resources[i].content, content);
             return; // Resource updated
@@ -89,20 +89,19 @@ void update_resource(const char *path, const char *content) {
     }
 
     // If the resource is not found, add a new resource
-    for (int i = 0; i < MAX_RESOURCE_COUNT; ++i) {
-        if (resources[i].path[0] == '\0') {
-            strcpy(resources[i].path, path);
-            strcpy(resources[i].content, content);
-            return; // New resource added
-        }
+    if (resources_count < MAX_RESOURCE_COUNT) {
+        strcpy(resources[resources_count].path, path);
+        strcpy(resources[resources_count].content, content);
+        resources_count++; // Increment the resource count
     }
 }
 
 void delete_resource(const char *path) {
-    for (int i = 0; i < MAX_RESOURCE_COUNT; ++i) {
+    for (int i = 0; i < resources_count; ++i) {
         if (strcmp(resources[i].path, path) == 0) {
             resources[i].path[0] = '\0'; // Empty the path to mark it as deleted
             resources[i].content[0] = '\0'; // Empty the content
+            resources_count--;
             return; // Resource deleted
         }
     }
@@ -130,7 +129,7 @@ void process_request(const HttpRequest *request, int connection_id) {
 
         // Respond with "Created" if the resource did not previously exist
         // Respond with "No Content" if the previous content has been overwritten
-        char *msg = "HTTP/1.1 %s\r\nContent-Length: 0\r\n\r\n";
+        char *msg;
         if (strlen(request->payload) > 0) {
             msg = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n";
         } else {
@@ -138,23 +137,35 @@ void process_request(const HttpRequest *request, int connection_id) {
         }
         send_message(msg, connection_id);
     } else if (strcmp(request->method, "GET") == 0){
-        // Check if the request path corresponds to a static route
-        if (strncmp(request->path, "/static/foo", strlen("/static/foo")) == 0) {
-            // Respond with "Foo"
-            char *msg = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nFoo\r\n";
-            send_message(msg, connection_id);
-        } else if (strncmp(request->path, "/static/bar", strlen("/static/bar")) == 0) {
-            // Respond with "Bar"
-            char *msg = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nBar\r\n";
-            send_message(msg, connection_id);
-        } else if (strncmp(request->path, "/static/baz", strlen("/static/baz")) == 0) {
-            // Respond with "Baz"
-            char *msg = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nBaz\r\n";
-            send_message(msg, connection_id);
+        if (is_dynamic_path(request->path)) {
+
+            // Search for the dynamic route in your resources array
+            for (size_t i = 0; i < resources_count; i++) {
+                if (strcmp(request->path, resources[i].path) == 0) {
+                    char *msg = resources[i].content;
+                    send_message(msg, connection_id);
+                    break;
+                }
+            }
         } else {
-            // Respond with "Not Found" for other paths
-            char *msg = "HTTP/1.1 404 Not Found\r\nContent-Length: 12\r\n\r\nNot Found\r\n\r\n";
-            send_message(msg, connection_id);
+            // Check if the request path corresponds to a static route
+            if (strncmp(request->path, "/static/foo", strlen("/static/foo")) == 0) {
+                // Respond with "Foo"
+                char *msg = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nFoo\r\n";
+                send_message(msg, connection_id);
+            } else if (strncmp(request->path, "/static/bar", strlen("/static/bar")) == 0) {
+                // Respond with "Bar"
+                char *msg = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nBar\r\n";
+                send_message(msg, connection_id);
+            } else if (strncmp(request->path, "/static/baz", strlen("/static/baz")) == 0) {
+                // Respond with "Baz"
+                char *msg = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nBaz\r\n";
+                send_message(msg, connection_id);
+            } else {
+                // Respond with "Not Found" for other paths
+                char *msg = "HTTP/1.1 404 Not Found\r\nContent-Length: 12\r\n\r\nNot Found\r\n\r\n";
+                send_message(msg, connection_id);
+            }
         }
     } else if (strcmp(request->method, "DELETE") == 0) {
         // Handle DELETE request
