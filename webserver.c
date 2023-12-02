@@ -160,7 +160,9 @@ int main(int argc, char* argv[]){
     //socklen_t addr_size;
 
     int status;
-    struct addrinfo hints;
+    struct addrinfo hints = {
+            .ai_family = AF_INET,
+    };
     struct addrinfo *servinfo;
 
     memset(&hints, 0, sizeof hints); // make sure the struct is empty
@@ -169,13 +171,11 @@ int main(int argc, char* argv[]){
 
     status = getaddrinfo(ipAddress, port, &hints, &servinfo);
     if(status != 0) {
-        fprintf(stderr, "getaddrinfo error: %s\\n\"", gai_strerror(status));
+        fprintf(stderr, "Error parsing host/port");
         return -1;
     }
 
     //Create a socket
-    /*struct addrinfo *res;*/
-
     int socket_id = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
 
     if(socket_id < 0){
