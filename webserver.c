@@ -23,20 +23,17 @@ typedef struct {
     char payload[BUFFER_SIZE - 600]; // Adjust the size based on your requirements
 } HttpRequest;
 
-typedef struct {
-    size_t start;
-    size_t end;
-} HttpRequestPosition;
 
-void send_response(int client_socket, const char *status_line, const char *body) {
-    char response[BUFFER_SIZE];
-    snprintf(response, sizeof(response), "%s\r\nContent-Length: %zu\r\n\r\n%s\r\n", status_line, strlen(body), body);
-
-    if (send(client_socket, response, strlen(response), 0) < 0) {
-        printf("Error sending response\n");
-    } else {
-        printf("Successful response!\n");
+void print_msg_buffer(char buffer[], int buffer_len) {
+    printf("Received message: ");
+    for (int i = 0; i < buffer_len; ++i) {
+        if (isprint(buffer[i])) {
+            putchar(buffer[i]);
+        } else {
+            printf("\\x%02X", buffer[i] & 0xFF);
+        }
     }
+    printf("\n");
 }
 
 void process_request(const HttpRequest *request) {
@@ -45,17 +42,24 @@ void process_request(const HttpRequest *request) {
            request->method, request->path, request->version, request->headers, request->payload);
 }
 
-/*int parse_http_request(const char *request_str, HttpRequest *request) {
-    // Basic parsing logic (you might want to enhance this for a full parser)
-    return sscanf(request_str, "%9s %254s %9s\r\n%254[^\r\n]\r\n\r\n%999[^\0]", request->method, request->path,
-                  request->version, request->headers, request->payload);
-}*/
 // Function to parse the HTTP request string into an HttpRequest structure
-void parse_http_request(const char *request_str, HttpRequest *parsed_request) {
-    printf("REQ -- %s", request_str);
+int parse_http_request(const char *request_str, HttpRequest *parsed_request) {
     // Simple parsing logic (you may need to enhance this based on your requirements)
     sscanf(request_str, "%s %s %s\r\n%[^\r\n]\r\n\r\n", parsed_request->method,
            parsed_request->path, parsed_request->version, parsed_request->headers);
+/*    sscanf(request_str, "%9s %99s %19s\r\n%499[^\r\n]\r\n\r\n%499[^\r\n]",
+           parsed_request->method, parsed_request->path, parsed_request->version,
+           parsed_request->headers, parsed_request->payload);*/
+
+/*    if(strcmp(parsed_request->method, "GET") != 0
+        && strcmp(parsed_request->method, "POST") != 0
+        && strcmp(parsed_request->method, "PUT") != 0
+        && strcmp(parsed_request->method, "DELETE") != 0
+    ) {
+        return -1;
+    } else if (strcmp(parsed_request->method, "GET") == 0) {
+        return 1;
+    }*/
 
     // Find the start of the payload
     const char *payload_start = strstr(request_str, "\r\n\r\n");
@@ -64,12 +68,14 @@ void parse_http_request(const char *request_str, HttpRequest *parsed_request) {
         strncpy(parsed_request->payload, payload_start, sizeof(parsed_request->payload) - 1);
         parsed_request->payload[sizeof(parsed_request->payload) - 1] = '\0';  // Null-terminate the payload
     }
+    return 0;
 }
 
 int check_string_ends_with_crlf(const char *str) {
     size_t len = strlen(str);
     return (len >= 4 && str[len - 4] == '\r' && str[len - 3] == '\n' && str[len - 2] == '\r' && str[len - 1] == '\n');
 }
+
 
 /*void get_http_request(char *str) {
     const char *substrings[] = {"GET", "POST", "PUT", "DELETE"};
@@ -195,23 +201,7 @@ int main(int argc, char* argv[]){
 
     printf("Listening successfully\n");
 
-    /*const char *pattern = "^(GET|POST|PUT|DELETE) / HTTP/1\\.1\\(r|x0D)\\(n|x0A)(.*: .*\\(r|x0D)\\(n|x0A))?(.*\\(r|x0D)\\(n|x0A))*\\(r|x0D)\\(n|x0A)(.*)$";*/
-    /*const char *pattern = "^(GET|POST|PUT|DELETE) \\/ HTTP\\/1\\.1\\\\(r|x0D)\\\\(n|x0A).*: .*\\\\(r|x0D)\\\\(n|x0A)?(.*\\\\(r|x0D)\\\\(n|x0A))*\\\\(r|x0D)\\\\(n|x0A)(.*)$"*/
-    //const char *pattern = "^(GET|POST|PUT|DELETE) / HTTP/1\\.1\\(r|x0D)\\(n|x0A).*: .*\\(r|x0D)\\(n|x0A)?(.*\\(r|x0D)\\(n|x0A))*\\(r|x0D)\\(n|x0A)(.*)$";
-/*
-    const char *pattern = "^(GET|POST|PUT|DELETE) \/ HTTP\/1\.1\\(r|x0D)\\(n|x0A)(.*: .*\\(r|x0D)\\(n|x0A))?(.*\\(r|x0D)\\(n|x0A))*\\(r|x0D)\\(n|x0A)(.*)$";
-*/
-
-/*    const char *pattern = "^(GET|POST|PUT|DELETE) / HTTP/1\\.1([\r\n]|[\x0D\x0A])(.*: .*([\r\n]|[\x0D\x0A]))*([\r\n]|[\x0D\x0A])(.*)$";
-
-    regex_t regex;
-    if (regcomp(&regex, pattern, REG_EXTENDED) != 0) {
-        fprintf(stderr, "Failed to compile regex\n");
-        return 1;
-    }*/
-
-    //char msg[1024];
-    //size_t pos = 0;
+    char *msg;
     while(1) {
         struct sockaddr_storage their_addr;
         socklen_t addr_size = sizeof their_addr;
@@ -230,10 +220,7 @@ int main(int argc, char* argv[]){
             perror("Reading failed\n");
             return -1;
         }
-        /*else if(amt == 0) {
-            printf("READING AMT 0");
-            break;
-        }*/
+
         buffer_len += amt;
         char *e = strstr(buffer, "\r\n\r\n");
         if(e) {
@@ -241,6 +228,14 @@ int main(int argc, char* argv[]){
 
             HttpRequest parsed_request;
             parse_http_request(buffer, &parsed_request);
+/*            int parse_status = parse_http_request(buffer, &parsed_request);
+            if (parse_status < 0) {
+                msg = "HTTP/1.1 501 Not Implemented\r\nContent-Length: 17\r\n\r\nNot Implemented\r\n\r\n";
+            } else if (parse_status == 1) {
+                msg = "HTTP/1.1 404 Not Found\r\nContent-Length: 13\r\n\r\nNot Found\r\n\r\n";
+            } else {
+                msg = "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\r\n\r\n";
+            }*/
 
             process_request(&parsed_request);
 
@@ -248,106 +243,8 @@ int main(int argc, char* argv[]){
             buffer_len = 0;
         }
 
-        // Receive data from the client
-        /*ssize_t bytes_received;
-        size_t inbuf_remain = BUFFER_SIZE - buffer_len;
-        //while ((bytes_received = recv(connection_id, (void*)&buffer[buffer_len], inbuf_remain, 0)) > 0) {
-            bytes_received = recv(connection_id, (void*)&buffer[buffer_len], inbuf_remain, 0);
-            if(bytes_received < 0) {
-                perror("Reading failed\n");
-                return -1;
-            } else if(bytes_received == 0) {
-                printf("READING AMT 0");
-                break;
-            }
-            buffer_len += bytes_received;
-            // Identify complete HTTP requests in the buffer
-            int start, end;
-            int status = get_http_request(buffer, &start, &end);
-            if(status != 0) {
-                printf("++++++++++++++++++++");
-                char valid_request[end - start];
-                memcpy(valid_request, buffer + start, end - start);
+        print_msg_buffer(buffer, buffer_len);
 
-                HttpRequest parsed_request;
-                parse_http_request(valid_request, &parsed_request);
-
-                // Process the complete HTTP request
-                process_request(&parsed_request);
-                printf("++++++++++++++++++++");
-            }
-            char *end_of_header = strstr(buffer, "\r\n\r\n");
-            if (end_of_header != NULL) {
-            //while (end_of_header != NULL) {
-                // A complete HTTP request is found
-                size_t request_len = end_of_header - buffer + 4; // Include the end of headers and the empty line
-                char request[request_len + 1]; // +1 for null terminator
-                strncpy(request, buffer, request_len);
-                request[request_len] = '\0'; // Null-terminate the string
-
-                // Parse the HTTP request string into an HttpRequest structure
-                HttpRequest parsed_request;
-                parse_http_request(request, &parsed_request);
-
-                // Process the complete HTTP request
-                process_request(&parsed_request);
-
-                // Remove the processed data from the buffer
-
-                //memmove(buffer, buffer + request_len, buffer_len);
-                //buffer_len -= request_len;
-
-                // Look for the next complete HTTP request in the buffer
-                //end_of_header = strstr(buffer, "\r\n\r\n");
-            }*/
-        //}
-
-/*        char recv_buffer[3000];
-        int recv_status = recv(connection_id, recv_buffer, sizeof(recv_buffer) - 1, 0);
-        if (recv_status == 0) {
-            // Connection closed by the client
-            perror("Client disconnected\n");
-            break; // Break out of the loop
-        } else if(recv_status == -1) {
-            perror("Receiving error");
-            close(connection_id);
-            return -1;
-        }*/
-
-        printf("Received message: ");
-        for (int i = 0; i < buffer_len; ++i) {
-            if (isprint(buffer[i])) {
-                putchar(buffer[i]);
-            } else {
-                printf("\\x%02X", buffer[i] & 0xFF);
-            }
-        }
-        printf("\n");
-
-        //MATCHING OF HTTP PACKET
-        char *msg;
-
-
-/*       strcat(buffer, escaped_recv_buffer);
-        buffer_len += data_len;
-
-        memset(recv_buffer, 0, sizeof(recv_buffer));
-        printf("BUFFER :::: %s", buffer);*//*
-        regmatch_t matches[6];
-        if (regexec(&regex, recv_buffer, 6, matches, 0) == 0) {
-            // Match found
-            printf("HTTP Method: %.*s\n", (int)(matches[1].rm_eo - matches[1].rm_so), recv_buffer + matches[1].rm_so);
-            printf("Host: %.*s\n", (int)(matches[3].rm_eo - matches[3].rm_so), recv_buffer + matches[3].rm_so);
-            printf("Payload: %.*s\n", (int)(matches[5].rm_eo - matches[5].rm_so), recv_buffer + matches[5].rm_so);
-
-            //msg = "Reply\r\n\r\n";
-            msg = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nReply\r\n\r\n";
-
-        } else {
-            msg = "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\r\n\r\n";
-            printf("No match\n");
-        }
-*/
         msg = "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\r\n\r\n";
         int len = strlen(msg);
         int bytes_sent = send(connection_id, msg, len, 0);
