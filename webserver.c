@@ -67,13 +67,13 @@ void send_message(char msg[], int connection_id) {
         //return -1;
     }
     printf("Message sent successfully\n");
-    printf("Successful reply!");
+    printf("Successful reply!\n\n\n");
 }
 
 bool find_resource(const char *path, char *content) {
-    for (int i = 0; i < MAX_RESOURCE_COUNT; ++i) {
+    for (int i = 0; i < resources_count; ++i) {
         if (strcmp(resources[i].path, path) == 0) {
-            strcpy(content, resources[i].content);
+            //strcpy(content, resources[i].content);
             return true; // Resource found
         }
     }
@@ -114,8 +114,14 @@ int is_dynamic_path(const char *path) {
 
 void process_request(const HttpRequest *request, int connection_id) {
     // Your logic to process the complete and valid HTTP request goes here
-    printf("Processing request:\nMethod: %s\nPath: %s\nVersion: %s\nHeaders: %s\nPayload: %s\n",
-           request->method, request->path, request->version, request->headers, request->payload);
+/*    printf("Processing request:\nMethod: %s\nPath: %s\nVersion: %s\nHeaders: %s\nPayload: %s\n",
+           request->method, request->path, request->version, request->headers, request->payload);*/
+    printf("\n\nProcessing request:\nMethod: %s\nPath: %s\nVersion: %s\nHeaders:\n", request->method, request->path, request->version);
+    // Print each header
+    for (int i = 0; i < MAX_HEADERS && request->headers[i][0][0] != '\0'; i++) {
+        printf("  %s: %s\n", request->headers[i][0], request->headers[i][1]);
+    }
+    printf("Payload: %s\n", request->payload);
 
     if(strcmp(request->method, "PUT") == 0) {
         if (!is_dynamic_path(request->path)) {
@@ -133,20 +139,29 @@ void process_request(const HttpRequest *request, int connection_id) {
         if (strlen(request->payload) > 0) {
             msg = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n";
         } else {
-            msg = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
+            msg = "HTTP/1.1 204 No Content\r\n\r\n";
         }
         send_message(msg, connection_id);
     } else if (strcmp(request->method, "GET") == 0){
         if (is_dynamic_path(request->path)) {
 
             // Search for the dynamic route in your resources array
+            int found = 0;
             for (size_t i = 0; i < resources_count; i++) {
                 if (strcmp(request->path, resources[i].path) == 0) {
-                    char *msg = resources[i].content;
-                    send_message(msg, connection_id);
+                    found = 1;
+                    // Construct the HTTP response
+                    char response[1024];  // Adjust the size as needed
+                    snprintf(response, sizeof(response), "HTTP/1.1 200 OK\r\nContent-Length: %zu\r\n\r\n%s\r\n", strlen(resources[i].content), resources[i].content);
+                    send_message(response, connection_id);
                     break;
                 }
             }
+            if(!found) {
+                char *msg = "HTTP/1.1 404 Not Found\r\nContent-Length: 12\r\n\r\nNot Found\r\n\r\n";
+                send_message(msg, connection_id);
+            }
+
         } else {
             // Check if the request path corresponds to a static route
             if (strncmp(request->path, "/static/foo", strlen("/static/foo")) == 0) {
@@ -168,16 +183,19 @@ void process_request(const HttpRequest *request, int connection_id) {
             }
         }
     } else if (strcmp(request->method, "DELETE") == 0) {
-        // Handle DELETE request
-        delete_resource(request->path);
-
-        // Respond with "No Content" for successful deletion
-        // Respond with "Not Found" for deletion of non-existent resource
-        char *msg = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
+        // Check if the resource exists before attempting deletion
         if (!find_resource(request->path, NULL)) {
-            msg = "HTTP/1.1 404 Not Found\r\nContent-Length: 12\r\n\r\nNot Found\r\n\r\n";
+            // Respond with "Not Found" if the resource doesn't exist
+            char *msg = "HTTP/1.1 404 Not Found\r\nContent-Length: 12\r\n\r\nNot Found\r\n\r\n";
+            send_message(msg, connection_id);
+        } else {
+            // Handle DELETE request
+            delete_resource(request->path);
+
+            // Respond with "No Content" for successful deletion
+            char *msg = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
+            send_message(msg, connection_id);
         }
-        send_message(msg, connection_id);
     }
 }
 
@@ -478,6 +496,7 @@ int main(int argc, char* argv[]){
                     send_message(msg, connection_id);
                 } else if (strcmp(parsed_request.method, "GET") == 0 || strcmp(parsed_request.method, "POST") == 0 || strcmp(parsed_request.method, "PUT") == 0 || strcmp(parsed_request.method, "DELETE") == 0) {
                     // Handle the request based on the parsed information
+                    printf("PROCCCEESSISNGS");
                     process_request(&parsed_request, connection_id);
                 } else {
                     msg = "HTTP/1.1 501 Not Implemented\r\nContent-Length: 17\r\n\r\nNot Implemented\r\n\r\n";
