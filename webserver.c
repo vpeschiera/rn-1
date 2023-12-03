@@ -139,7 +139,7 @@ void process_request(const HttpRequest *request, int connection_id) {
         if (strlen(request->payload) > 0) {
             msg = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n";
         } else {
-            msg = "HTTP/1.1 204 No Content\r\n\r\n";
+            msg = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n";
         }
         send_message(msg, connection_id);
     } else if (strcmp(request->method, "GET") == 0){
@@ -444,6 +444,13 @@ int main(int argc, char* argv[]){
         return -1;
     }
 
+    // Set SO_REUSEADDR option
+    int reuseaddr = 1;
+    if (setsockopt(socket_id, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(reuseaddr)) == -1) {
+        perror("setsockopt");
+        return -1;
+    }
+
     printf("Socket created successfully\n");
 
     int bindStatus = bind(socket_id, servinfo->ai_addr, servinfo->ai_addrlen);
@@ -470,40 +477,49 @@ int main(int argc, char* argv[]){
         int connection_id = accept(socket_id, (struct sockaddr *)&their_addr, &addr_size);
         if (connection_id == -1) {
             perror("Accepting error");
-            return -1;
+            break; // Exit the loop on error
         }
 
         printf("Connection accepted\n");
+        char temporary_buffer[BUFFER_SIZE] = {0};
+        size_t temporary_buffer_len = 0;
 
-        while(1) {
-            assert(buffer_len < BUFFER_SIZE);
-            ssize_t  amt = read(connection_id, buffer + buffer_len, sizeof(buffer) - buffer_len);
-            if(amt <= 0) {
-                perror("Reading failed\n");
-                break;
-            }
+        assert(buffer_len < BUFFER_SIZE);
+        ssize_t amt;
+        while ((amt = read(connection_id, temporary_buffer, sizeof(temporary_buffer))) > 0) {
+            // Combine persistent and temporary buffers
+            char combined_buffer[BUFFER_SIZE * 2] = {0};
+            snprintf(combined_buffer, sizeof(combined_buffer), "%s%s", buffer, temporary_buffer);
 
-            print_msg_buffer(buffer, buffer_len);
-
-            buffer_len += amt;
-            char *e = strstr(buffer, "\r\n\r\n");
-            if(e) {
+            char *e = strstr(combined_buffer, "\r\n\r\n");
+            if (e) {
+                print_msg_buffer(combined_buffer, buffer_len);
                 // Parse HTTP request
                 HttpRequest parsed_request;
-                int parse_status = parse_http_request(buffer, &parsed_request);
-                if(parse_status < 0) {
-                    msg = "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\r\n\r\n";
+                int parse_status = parse_http_request(combined_buffer, &parsed_request);
+                printf("PARSE STATUS %i\n", parse_status);
+                if (parse_status < 0) {
+
+                    msg = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
                     send_message(msg, connection_id);
-                } else if (strcmp(parsed_request.method, "GET") == 0 || strcmp(parsed_request.method, "POST") == 0 || strcmp(parsed_request.method, "PUT") == 0 || strcmp(parsed_request.method, "DELETE") == 0) {
+                } else if (strcmp(parsed_request.method, "GET") == 0 || strcmp(parsed_request.method, "POST") == 0 ||
+                           strcmp(parsed_request.method, "PUT") == 0 || strcmp(parsed_request.method, "DELETE") == 0) {
                     // Handle the request based on the parsed information
-                    printf("PROCCCEESSISNGS");
                     process_request(&parsed_request, connection_id);
                 } else {
                     msg = "HTTP/1.1 501 Not Implemented\r\nContent-Length: 17\r\n\r\nNot Implemented\r\n\r\n";
                     send_message(msg, connection_id);
                 }
 
-                memset(buffer, '\0', BUFFER_SIZE);
+                // Update persistent buffer with combined buffer
+/*                strncpy(buffer, combined_buffer, sizeof(buffer) - 1);
+                buffer_len = strlen(buffer);*/
+
+                // Reset temporary buffer for the next iteration
+                memset(temporary_buffer, '\0', sizeof(temporary_buffer));
+                memset(buffer, '\0', sizeof(buffer));
+
+                // Reset buffer_len for the next iteration
                 buffer_len = 0;
             }
         }
