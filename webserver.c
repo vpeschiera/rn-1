@@ -199,18 +199,7 @@ void process_request(const HttpRequest *request, int connection_id) {
     }
 }
 
-// Function to check if "Content-Length" is present in the headers
-int has_content_length_header(char headers[MAX_HEADERS][2][MAX_HEADER_SIZE], int header_count) {
-    for (int i = 0; i < header_count; i++) {
-        if (strcmp(headers[i][0], "Content-Length") == 0) {
-            return 1; // Found "Content-Length" header
-        }
-    }
-    return 0; // "Content-Length" not found
-}
-
 int parse_http_request(char *buffer, HttpRequest *request) {
-    char *token;
     char *saveptr;
     char *line;
     int header_count = 0;
@@ -250,27 +239,14 @@ int parse_http_request(char *buffer, HttpRequest *request) {
         payload_start = saveptr;
 
         // Find the position of the colon in the line
-        //char *colon_pos = strstr(line, ": ");
         if (colon_pos) {
             // Extract the header name and value
             strncpy(request->headers[header_count][0], line, colon_pos - line);
             strcpy(request->headers[header_count][1], colon_pos + 2);
             header_count++;
         }
-/*        token = strtok(line, ": ");
-        strncpy(request->headers[header_count][0], token, MAX_HEADER_SIZE);
-        token = strtok(NULL, "");
-        strncpy(request->headers[header_count][1], token, MAX_HEADER_SIZE);
-        header_count++;*/
     }
 
-/*    // Parse payload based on Content-Length header
-    for (int i = 0; i < header_count; i++) {
-        if (strcmp(request->headers[i][0], "Content-Length") == 0) {
-            sscanf(request->headers[i][1], "%zu", &(request->content_length));
-            break;
-        }
-    }*/
     // Parse payload based on Content-Length header
     for (int i = 0; i < header_count; i++) {
         if (strcmp(request->headers[i][0], "Content-Length") == 0) {
@@ -281,39 +257,17 @@ int parse_http_request(char *buffer, HttpRequest *request) {
                 payload_start++;
             }
 
-            // Find the start of the payload
-/*            char *payload_pos = strstr(payload_start, "\r\n\r\n");
-            if (payload_pos != NULL) {
-                payload_pos += 4;  // Move past the "\r\n\r\n"*/
-
-                // Check if the content length matches the actual payload length
-                if (strlen(payload_start) >= content_length) {
-                    strncpy(request->payload, payload_start, content_length);
-                    request->payload[content_length] = '\0';  // Null-terminate the payload
-                } else {
-                    // Invalid request: payload length doesn't match Content-Length header
-                    return -1;
-                }
-            //}
+            // Check if the content length matches the actual payload length
+            if (strlen(payload_start) >= content_length) {
+                strncpy(request->payload, payload_start, content_length);
+                request->payload[content_length] = '\0';  // Null-terminate the payload
+            } else {
+                // Invalid request: payload length doesn't match Content-Length header
+                return -1;
+            }
             break;
         }
     }
-
-/*    // Skip leading whitespace characters before the payload
-    while (isspace(*payload_start)) {
-        payload_start++;
-    }
-
-    // Copy payload if present
-    if (request->content_length > 0) {
-        strncpy(request->payload, line, request->content_length);
-    }
-
-    // Check for a missing Content-Length header for non-zero content length
-    if (request->content_length > 0 && has_content_length_header(request->headers, header_count) == 0) {
-        // Invalid request: non-zero content length with no Content-Length header
-        return -1;
-    }*/
 
     return 0; // Successfully parsed
 }
@@ -323,18 +277,6 @@ int check_string_ends_with_crlf(const char *str) {
     return (len >= 4 && str[len - 4] == '\r' && str[len - 3] == '\n' && str[len - 2] == '\r' && str[len - 1] == '\n');
 }
 
-/*void get_http_request(char *str) {
-    const char *substrings[] = {"GET", "POST", "PUT", "DELETE"};
-    size_t substring_count = sizeof(substrings) / sizeof(substrings[0]);
-
-    for (size_t i = 0; i < substring_count; ++i) {
-        const char *substring = substrings[i];
-        const char *pos = strstr(str, substring);
-        if (pos != NULL && check_string_ends_with_crlf(pos + strlen(substring))) {
-            printf("Found substring '%s' at position %zu\n", substring, pos - str);
-        }
-    }
-}*/
 int get_http_request(char *str, int *start, int *end) {
     const char *substrings[] = {"GET", "POST", "PUT", "DELETE"};
     size_t substring_count = sizeof(substrings) / sizeof(substrings[0]);
@@ -362,46 +304,6 @@ int get_http_request(char *str, int *start, int *end) {
 
     return 0;  // No valid HTTP request found
 }
-/*HttpRequestPosition get_http_request(char *str) {
-    const char *substrings[] = {"GET", "POST", "PUT", "DELETE"};
-    size_t substring_count = sizeof(substrings) / sizeof(substrings[0]);
-
-    HttpRequestPosition position = {0, 0};  // Initialize positions to 0
-
-    for (size_t i = 0; i < substring_count; ++i) {
-        const char *substring = substrings[i];
-        const char *pos = strstr(str, substring);
-        if (pos != NULL && check_string_ends_with_crlf(pos + strlen(substring))) {
-            position.start = pos - str;  // Set the start position
-            const char *end_pos = strstr(pos, "\r\n\r\n");
-            if (end_pos != NULL) {
-                position.end = end_pos + 4 - str;  // Set the end position after "\r\n\r\n"
-                printf("Found substring '%s' at position %zu\n", substring, position.start);
-                break;  // Stop searching after the first valid HTTP request is found
-            }
-            *//*position.end = pos + strlen(substring) - str;  // Set the end position
-            printf("Found substring '%s' at position %zu\n", substring, position.start);
-            break;  // Stop searching after the first valid HTTP request is found*//*
-        }
-    }
-
-    return position;
-}*/
-
-/*void print_request(HttpRequest *request) {
-    printf("Method: %s\n", request->method);
-    printf("Path: %s\n", request->path);
-    printf("Version: %s\n", request->version);
-
-    printf("Headers:\n");
-    for (int i = 0; i < MAX_HEADERS && request->headers[i][0][0] != '\0'; i++) {
-        printf("%s: %s\n", request->headers[i][0], request->headers[i][1]);
-    }
-
-    if (request->content_length > 0) {
-        printf("Payload: %.*s\n", (int)request->content_length, request->payload);
-    }
-}*/
 
 int main(int argc, char* argv[]){
     char buffer[BUFFER_SIZE] = {0};
@@ -487,19 +389,17 @@ int main(int argc, char* argv[]){
         assert(buffer_len < BUFFER_SIZE);
         ssize_t amt;
         while ((amt = read(connection_id, temporary_buffer, sizeof(temporary_buffer))) > 0) {
+
             // Combine persistent and temporary buffers
             char combined_buffer[BUFFER_SIZE * 2] = {0};
             snprintf(combined_buffer, sizeof(combined_buffer), "%s%s", buffer, temporary_buffer);
-
             char *e = strstr(combined_buffer, "\r\n\r\n");
             if (e) {
                 print_msg_buffer(combined_buffer, buffer_len);
                 // Parse HTTP request
                 HttpRequest parsed_request;
                 int parse_status = parse_http_request(combined_buffer, &parsed_request);
-                printf("PARSE STATUS %i\n", parse_status);
                 if (parse_status < 0) {
-
                     msg = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
                     send_message(msg, connection_id);
                 } else if (strcmp(parsed_request.method, "GET") == 0 || strcmp(parsed_request.method, "POST") == 0 ||
@@ -511,11 +411,7 @@ int main(int argc, char* argv[]){
                     send_message(msg, connection_id);
                 }
 
-                // Update persistent buffer with combined buffer
-/*                strncpy(buffer, combined_buffer, sizeof(buffer) - 1);
-                buffer_len = strlen(buffer);*/
-
-                // Reset temporary buffer for the next iteration
+                // Reset buffers for the next iteration
                 memset(temporary_buffer, '\0', sizeof(temporary_buffer));
                 memset(buffer, '\0', sizeof(buffer));
 
